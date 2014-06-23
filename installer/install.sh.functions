@@ -1,0 +1,350 @@
+#
+# Date:   2014-06-23
+# Author: Daniel Zapico
+# Desc:   whatismyip.sh installer functions
+#_____________________________________________________
+
+_CreateTargetDir()
+{
+  # Check if TARGETDIR/script exist
+if [[ -d "$TARGETDIR/script" && "$FORCE" != "1" ]]; then
+  # TARGETDIR exist. Check if it has any files inside already
+  NUMFILES="$(ls -la $TARGETDIR | wc -l)"
+  if [[ "$NUMFILES" > "3" ]]; then
+    echo "Error: $TARGETDIR is not empty"
+    echo "       Use -f to force the installation"
+    echo "       Aborting installation"
+    exit "$TARGETDIRNOTEMPTY"
+  fi
+else
+  if [[ ! -d "$TARGETDIR/script" ]]; then
+    echo -n "Do you want to create $TARGETDIR/script? [Y|n]: "
+    read ANSWER
+    if [[ "$ANSWER" == "n" || "$ANSWER" == "N" ]]; then
+      echo "Installation aborted by the user"
+      exit "$ABORTEDBYUSER"
+    fi
+    ANSWER=""
+    echo -n "Creating $TARGETDIR ... "
+    mkdir -p "$TARGETDIR/script"
+    if [[ "$?" != "0" ]]; then
+      echo -e "[${RED}Fail${NORMAL}]"
+      exit "$CANNOTCREATETARGET"
+    else
+      echo -e "[${GREEN}Ok${NORMAL}]"
+    fi
+  else
+    echo "Warning: $TARGETDIR/script is not empty"
+    echo "	   using -f will overwrite the existing files"
+    echo -n "Are you sure you want to overwrite the existing files? [y|N]: "
+    read ANSWER
+    if [[ "$ANSWER" != "y" && "$ANSWER" != "Y" ]]; then
+      echo "Installation aborted by the user"
+      exit "$ABORTEDBYUSER"
+    fi
+    echo "Overwriting existing files"
+  fi
+fi
+}
+
+_CreateICEToolsDirBin()
+{
+  # Create ICETOOLSDIR/bin if it doesn't exist
+  if [[ ! -d "$ICETOOLSDIR/bin" ]]; then
+    mkdir -p "$ICETOOLSDIR/bin"
+  fi
+}
+
+_ConfirmSources()
+{
+# Confirm the source directory exist
+echo -n "Confirm that the source directory exist ... "
+if [[ ! -d "$TOOLDIR/script" ]]; then 
+  echo -e "[${RED}Fail${NORMAL}]"
+  echo "Error: $TOOLDIR/script cannot be found. Nothing to install at all"
+  exit "$NOSOURCEFILES"
+else
+  echo -e "[${GREEN}Ok${NORMAL}]"
+fi  
+    
+# Confirm the source files exist
+echo -n "Checking if files to be installed exist ... "
+NUMFILES="$(ls $TOOLDIR/script | wc -l)"
+if [[ "$NUMFILES" == "0" ]]; then
+  echo -e "[${RED}Fail${NORMAL}]"
+  echo "Error: Directory $TOOLDIR/script is empty. Nothing to install at all"
+  exit "$NOSOURCEFILES"
+else
+  echo -e "[${GREEN}Ok${NORMAL}]"
+fi
+
+# Check if each file exist
+for file in $SOURCES ; do
+  echo -n "   $file ... "
+  if [[ -e "$TOOLDIR/script/$file" ]]; then
+    echo -e "[${GREEN}Ok${NORMAL}]"
+  else
+    echo -e "[${RED}Fail${NORMAL}]"
+    exit "$INCOMPLESOURCEFILES"
+  fi
+done
+}
+
+_InstallFiles()
+{
+# Copy source files to TARGETDIR/script
+echo -n "Copying files ... "
+cp $TOOLDIR/script/* $TARGETDIR/script/
+RET="$?"
+
+if [[ "$RET" != "0" ]]; then
+  echo -e "[${RED}Fail${NORMAL}]"
+  exit "$CANNOTCOPYFILES"
+else
+  echo -e "[${GREEN}Ok${NORMAL}]"
+fi
+
+# Set permissions
+echo -n "Setting permissions ... "
+chmod 644 $TARGETDIR/script/*
+RET1="$?"
+chmod 755 $TARGETDIR/script/*.sh
+RET2="$?"
+if [[ "$RET1" != "0" || "$RET2" != "0" ]]; then
+  echo -e "[${RED}Fail${NORMAL}]"
+  exit "$CANNOTSETPERMS"
+else
+  echo -e "[${GREEN}Ok${NORMAL}]"
+fi
+}
+
+_UninstallFiles()
+{
+  if [[ -d "$TARGETDIR" ]]; then
+    if [[ "$FORCE" != "1" ]]; then
+      echo -n "Are you sure you want to uninstall $TSNAME? [y|N]: "
+      read ANSWER
+      if [[ "$ANSWER" != "y" && "$ANSWER" != "Y" ]]; then
+        echo "Uninstallation aborted by the user..."
+	exit "$UNINSTALLABORTEDBYUSER"
+      fi
+    fi
+    FORCE="1"
+    echo -n "Uninstalling files and removing directories ... "
+    rm -r "$TARGETDIR" &>/dev/null
+    RET="$?"
+    if [[ "$RET" != "0" ]]; then
+      echo -e "[${RED}Fail${NORMAL}]"
+      exit "$CANNOTREMOVEFILES"
+    else
+      echo -e "[${GREEN}Ok${NORMAL}]"
+    fi
+  else
+    echo "No files found, nothing to be removed"
+  fi
+ 
+  if [[ -L "$ICETOOLSDIR/bin/$TSNAME" ]]; then
+    if [[ "$FORCE" != "1" ]]; then
+      echo -n "Are you sure you want to uninstall $TSNAME? [y|N]: "
+      read ANSWER
+      if [[ "$ANSWER" != "y" && "$ANSWER" != "Y" ]]; then
+        echo "Uninstallation aborted by the user..."
+        exit "$UNINSTALLABORTEDBYUSER"
+      fi
+    fi
+    echo -n "Removing links ... "
+    rm "$ICETOOLSDIR/bin/$TSNAME" &>/dev/null
+    RET="$?"
+    if [[ "$RET" != "0" ]]; then
+      echo -e "[${RED}Fail${NORMAL}]"
+      exit "$CANNOTREMOVELINK"
+    else
+      echo -e "[${GREEN}Ok${NORMAL}]"
+    fi
+  else
+    echo "No links found, nothing to be removed"
+  fi
+}
+
+_UpdateBashrc()
+{
+if [[ "$1" != "install" && "$1" != "uninstall" ]]; then
+  echo "Error: _UpdateBashrc: invalid parameter $1"
+  exit "$UPDATEBASHRCINVALIDPARAM"
+fi
+
+# Prepare ICETOOLSDIR_PATTERN to be used by AWK
+ICETOOLSDIR_PATTERN="$(echo "$ICETOOLSDIR" | awk '{gsub(/\//,"\\/"); print}')"
+# Change PATH in /etc/bash.bashrc
+
+if [[ "$1" == "install" ]]; then
+  echo -n "Verifying / Updating PATH variable in /etc/bash.bashrc ... "
+  awk '/^[ ]*PATH=/ && !/'$ICETOOLSDIR_PATTERN'/{
+       PATH=$1;
+       sub(/"[ ]*$/,"",PATH); 
+       print PATH ":'$ICETOOLSDIR/bin'\""; 
+       modified="1";
+     }
+  /^[ ]*PATH=.*'$ICETOOLSDIR_PATTERN'/{
+       pathok="1"; 
+       print;
+     }
+  !/^[ ]*PATH=/{
+       print;
+     }
+  END{
+       if(modified == "1" || pathok == "1") 
+         exit "0"; 
+       exit "1";
+     }' /etc/bash.bashrc > "$TMPBASHRC"
+  RET="$?"
+else
+  if [[ "$1" == "uninstall" ]]; then
+    awk '/^[ ]*PATH=.*'$ICETOOLSDIR_PATTERN'/{
+          ret="1";
+	  exit;
+	}
+	{
+	  ret="0";
+	}
+	END{
+	  exit ret;
+	}' /etc/bash.bashrc
+    RET="$?"
+    if [[ "$RET" == "0" ]]; then
+      echo "PATH variable is correct, no actions needed"
+      exit "$DEFAULTEXITCODE"
+    fi
+
+    if [[ "$FORCE" != "1" ]]; then
+      echo -n "Are you sure you want to uninstall $TSNAME? [y|N]: "
+      read ANSWER
+      if [[ "$ANSWER" != "y" && "$ANSWER" != "Y" ]]; then
+        echo "Uninstallation aborted by the user..."
+        exit "$UNINSTALLABORTEDBYUSER"
+      fi
+    fi
+    echo -n "Verifying / Updating PATH variable in /etc/bash.bashrc ... "
+    awk '/^[ ]*PATH=.*'$ICETOOLSDIR_PATTERN'/{
+        PATH=$1; 
+        gsub(/.*="/,"",PATH); 
+        gsub(/"/,"",PATH); 
+        n=split(PATH,vec,":"); 
+        NEWPATH="PATH=\"";
+        for(i in vec)
+          if(match(vec[i],/'$ICETOOLSDIR_PATTERN'/) == "0")
+            NEWPATH=NEWPATH vec[i]":"; 
+        sub(/:$/,"\"",NEWPATH);
+	print NEWPATH;
+      }
+      !/^[ ]*PATH=.*'$ICETOOLSDIR_PATTERN'/{
+        print;
+      }' /etc/bash.bashrc > "$TMPBASHRC"
+    RET="$?"
+  else
+    echo "Error: _UpdateBashrc received an invalid argument"
+    exit "$INVALIDARG"
+  fi
+fi
+
+if [[ "$RET" != "0" ]]; then
+  echo -e "[${RED}Fail${NORMAL}]"
+  rm "$TMPBASHRC"
+  exit "$CANNOTSETPATH"
+fi
+
+# Backup current bash.bashrc file
+cp -p /etc/bash.bashrc /etc/bash.bashrc.bak.$(date +%Y%m%d%H%M%S)
+RET="$?"
+
+if [[ "$RET" != "0" ]]; then
+  echo -e "[${RED}Fail${NORMAL}]"
+  echo "Error: couldn't backup current /etc/bash.bashrc file"
+  rm "$TMPBASHRC"
+  exit "$CANNOTBACKUPBASHRC"
+fi
+
+# Update bash.bashrc
+mv "$TMPBASHRC" /etc/bash.bashrc
+RET="$?"
+
+if [[ "$RET" != "0" ]]; then
+  echo -e "[${RED}Fail${NORMAL}]"
+  rm "$TMPBASHRC"
+  exit "$CANNOTUPDATEBASHRC"
+else
+  echo -e "[${GREEN}Ok${NORMAL}]"
+fi
+}
+
+_CreateLinks()
+{
+# Create links in ICETOOLSDIR/bin
+echo -n "Verifying / Creating links in $ICETOOLSDIR/bin ... "
+ln -s $TARGETDIR/script/$TSNAME $ICETOOLSDIR/bin/$TSNAME &>/dev/null
+RET1="$?"
+
+test -L "$ICETOOLSDIR/bin/$TSNAME"
+RET2="$?"
+
+if [[ "$RET1" != "0" && "$RET2" != "0" ]]; then
+  echo -e "[${RED}Fail${NORMAL}]"
+  exit "$CANNOTCREATELINK"
+else
+  echo -e "[${GREEN}Ok${NORMAL}]"
+fi
+}
+
+_Usage()
+{
+cat << EOF
+Usage: $SNAME [OPTIONS] 
+
+OPTIONS:
+  -h show this help
+  -f force installation overwriting any existing files
+  -u uninstall tool
+EOF
+}
+
+_ParseInputParams()
+{
+while getopts ":hfu" OPTION; do
+      case "$OPTION" in
+         h)
+           _Usage
+           exit "$DEFAULTEXITCODE"
+           ;;
+         f)
+	   FORCE="1"
+           ;;
+	 u)
+	   UNINSTALL="1"
+	   ;;
+        \?)
+           _Usage
+           exit "$WRONGUSAGE"
+           ;;
+       esac
+done
+}
+
+_InstalldiskUsageMon()
+{
+  _CreateTargetDir
+  _CreateICEToolsDirBin
+  _ConfirmSources
+  _InstallFiles
+  _UpdateBashrc "install"
+  _CreateLinks
+}
+
+_UninstalldiskUsageMon()
+{
+  _UninstallFiles
+  # Update the PATH only if there are no tools left using it
+  NUMLINKS="$(ls $ICETOOLSDIR/bin | wc -l)"
+  if [[ "$NUMLINKS" == "0" ]]; then 
+    _UpdateBashrc "uninstall"
+  fi
+}

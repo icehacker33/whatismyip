@@ -1,0 +1,18 @@
+#
+# Date:   2014-06-08
+# Author: Daniel Zapico
+# Desc:   whatismyip.sh properties file
+#_____________________________________________________
+
+IPPROVIDERS="icanhazip.com,ip.appspot.com,ifconfig.me"
+
+# Logs directory
+LOGSDIR="$TOOLDIR/logs"
+
+# Log file extension
+LOGEXT="log"
+
+# Log filename patter: sname.datentime.logext
+LOGFILE="$LOGSDIR/$(echo \"$SNAME\" | awk 'BEGIN{datentime="'$(echo $DATENTIME)'"; ext="'$(echo $LOGEXT)'"}{split($1,vec,".");print vec[1]"."datentime"."ext}')"
+
+

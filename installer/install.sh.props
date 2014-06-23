@@ -1,0 +1,28 @@
+#!/bin/bash
+#
+# Date:   2014-06-23
+# Author: Daniel Zapico
+# Desc:   whatismyip.sh installer's properties file
+#_____________________________________________________
+
+# Tool's base directory
+ICETOOLSDIR="/opt/icetools"
+
+# Target installation directory
+TARGETDIR="$ICETOOLSDIR/tools/whatismyip"
+
+# Target script's name
+TSNAME="$(basename ../script/*.sh)"
+
+# Source files
+SOURCES="whatismyip.sh whatismyip.sh.props whatismyip.sh.exitcodes whatismyip.sh.functions"
+
+# Temp bash.bashrc file to overwrite the old one if necessary
+TMPBASHRC="/tmp/bash.bashrc.new.$(date +%Y%m%d%H%M%S)"
+
+# Prompt colors
+GREEN="\033[01;32m"
+RED="\033[01;31m"
+NORMAL="\033[01;00m"
+
+

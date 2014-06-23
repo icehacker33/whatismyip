@@ -1,0 +1,168 @@
+#
+# Date:   2014-06-08
+# Author: Daniel Zapico
+# Desc:   whatismyip.sh auxiliary functions
+#_____________________________________________________
+
+_Print2Log()
+{
+    if [[ "$VERBOSE" == "1" || "$DEBUG" == "1" ]]; then
+      echo "$(date +"*** "%Y"-"%m"-"%d"   "%H":"%M":"%S" ***")   $@" | tee -a "$LOGFILE"
+    fi
+}
+
+_PrintError2Log()
+{
+    if [[ "$VERBOSE" == "1" || "$DEBUG" == "1" ]]; then
+      echo "$(date +"*** "%Y"-"%m"-"%d"   "%H":"%M":"%S" ***")   ERROR: $@" | tee -a "$LOGFILE"
+    fi
+}
+
+_PrintWarning2Log()
+{
+    if [[ "$VERBOSE" == "1" || "$DEBUG" == "1" ]]; then
+      echo "$(date +"*** "%Y"-"%m"-"%d"   "%H":"%M":"%S" ***")   WARNING: $@" | tee -a "$LOGFILE"
+    fi
+}
+
+_PrintDebug()
+{
+    if [[ "$DEBUG" == "1" ]];then
+        _Print2Log "DEBUG: $@" | tee -a "$LOGFILE"
+    fi 
+}
+
+_Exit()
+{
+    if [[ "$1" == "" ]]; then
+      _PrintError2Log "Empty exit code!"
+      exit "$EMPTYEXITCODE"
+    fi
+    
+    _PrintDebug "Exiting with code $1"
+    exit $1
+}
+
+_Usage()
+{
+NUMPROVIDERS="$(echo $IPPROVIDERS | awk '{numproviders=split($1,vec,","); print numproviders+1}')"
+cat << EOF
+Usage: $SNAME [OPTIONS]
+
+OPTIONS:
+  -h show this help
+  -l list servers available and their index
+  -i INDEX use the server indicated by its index among the ones available
+     INDEX should be a value between 1 and $NUMPROVIDERS
+  -d debugging mode
+  -v verbose mode
+EOF
+}
+
+_InitializeVariables()
+{
+# Initialize variables
+_Print2Log "Initializing variables"
+EXTIP=""
+VALIDIP="0"
+if [[ "$MODE" == "i" ]]; then
+  CHOICE="$INDEX"
+  _PrintDebug "Setting CHOICE = $INDEX"
+else
+  CHOICE="1"
+  _PrintDebug "Setting CHOICE = 1"
+fi
+_PrintDebug "Getting the number of IP providers"
+NUMPROVIDERS="$(echo $IPPROVIDERS | awk '{numproviders=split($1,vec,","); print numproviders+1}')"
+_PrintDebug "NUMPROVIDERS = $NUMPROVIDERS"
+}
+
+_ResolveExternalIP()
+{
+# Resolve external IP
+_Print2Log "Resolving external IP address"
+while [[ "$VALIDIP" == "0" && "$CHOICE" < "$NUMPROVIDERS" ]]; do
+  # Get current IP provider
+  IPPROVIDER="$(echo $IPPROVIDERS | awk 'BEGIN{option="'$(echo $CHOICE)'"}{split($1,vec,","); print vec[option]}')"
+  _PrintDebug "IPPROVIDER = $IPPROVIDER"
+  _Print2Log "Using server: $IPPROVIDER"
+  # Get current external IP
+  EXTIP="$(curl $IPPROVIDER 2>/dev/null)"
+  _PrintDebug "EXTIP = $EXTIP"
+  # Validate response
+  echo "$EXTIP" | awk '/^[ ]*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/{ecode="0"; exit}{ecode="1"; exit}END{exit ecode}'
+  _PrintDebug "Validating response"
+  if [[ "$?" == "0" ]]; then
+    VALIDIP="1"
+    _PrintDebug "The response contains a valid IP address"
+  else
+    CHOICE="$(expr $CHOICE + 1)"
+    _PrintDebug "Invalid response, trying the following server"
+  fi
+done
+}
+
+_CheckExternalIP()
+{
+# Check whether the external IP was resolved or not
+if [[ "$VALIDIP" != "1" ]]; then
+  _PrintError2Log "The external IP couldn't be resolved"
+  _PrintError2Log "Check the IPPROVIDERS variable inside $SNAME.props"
+  _Exit "$COULDNTRESOLVEEXTIP"
+fi
+}
+
+_ParseInputParams()
+{
+MODE=""
+while getopts ":f:i:hlvd" OPTION; do
+      case "$OPTION" in
+         h)
+	   _Usage
+           _Exit "$DEFAULTEXITCODE"
+           ;;
+         l)
+	   if [[ "$MODE" != "" ]]; then
+             _Usage
+             _Exit "$WRONGUSAGE"
+           fi
+           MODE="l"
+           ;;
+         i)
+           if [[ "$MODE" != "" ]]; then
+             _Usage
+             _Exit "$WRONGUSAGE"
+           fi
+	   MODE="i"
+	   INDEX="$OPTARG"
+	   ;;
+         v)
+           VERBOSE="1"
+           ;;
+         d)
+           DEBUG="1"
+           ;;
+         \?)
+           _Usage
+           _Exit "$WRONGUSAGE"
+           ;;
+       esac
+done
+  _PrintDebug "Parsed parameters:"
+  _PrintDebug "MODE = $MODE"
+  _PrintDebug "VERBOSE = $VERBOSE"
+  _PrintDebug "DEBUG = $DEBUG"
+  if [[ "$MODE" == "i" ]]; then
+    NUMPROVIDERS="$(echo $IPPROVIDERS | awk '{numproviders=split($1,vec,","); print numproviders+1}')"
+    if [[ "$INDEX" < "1" || "$INDEX" > "$NUMPROVIDERS" ]]; then
+      _Usage
+      _Exit "$INDEXOUTOFBOUNDS"
+    fi
+  fi 
+}
+
+_ListServers()
+{
+_Print2Log "Listing available servers"
+echo "$IPPROVIDERS" | awk 'BEGIN{print "Server\t\t\tIndex"}{split($1,vec,","); i="1"; for (server in vec){ print vec[server]"\t\t["i"]";i++}}'
+}
